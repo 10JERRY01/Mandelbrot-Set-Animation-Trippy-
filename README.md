@@ -8,7 +8,7 @@ An interactive 2D Mandelbrot set explorer with:
 - Full manual control (zoom, pan, dive)
 
 ## Usage
-Simply open `index.html` in a modern web browser.
+Simply open `mandelbrot.html` in a modern web browser.
 
 ## Controls
 - **Scroll**: Zoom at cursor
