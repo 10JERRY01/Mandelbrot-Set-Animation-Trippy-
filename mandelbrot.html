@@ -1,0 +1,547 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MANDELBROT — Deep Field</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;800&family=IBM+Plex+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink:#eef0e9; --dim:rgba(238,240,233,.5); --amber:#ffb02e; --red:#ff5347;
+    --panel:rgba(9,11,15,.78); --line:rgba(238,240,233,.16);
+  }
+  *{margin:0;box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    background:#05060a;color:var(--ink);overflow:hidden;user-select:none;
+    font-family:'IBM Plex Mono',ui-monospace,monospace;
+  }
+  #view{position:fixed;inset:0;display:block;cursor:crosshair}
+  body.dragging #view{cursor:grabbing}
+  #vig{position:fixed;inset:0;z-index:1;pointer-events:none;
+    background:radial-gradient(ellipse at 50% 50%, transparent 52%, rgba(0,0,0,.45) 100%);}
+
+  /* ---------- HUD ---------- */
+  #hud{position:fixed;inset:0;z-index:2;pointer-events:none;transition:opacity .45s}
+  body.hud-hidden #hud{opacity:0}
+
+  .corner{position:absolute;width:22px;height:22px;border:1px solid rgba(255,176,46,.55)}
+  .corner.tl{top:14px;left:14px;border-right:0;border-bottom:0}
+  .corner.tr{top:14px;right:14px;border-left:0;border-bottom:0}
+  .corner.bl{bottom:14px;left:14px;border-right:0;border-top:0}
+  .corner.br{bottom:14px;right:14px;border-left:0;border-top:0}
+
+  header{position:absolute;top:30px;left:34px;max-width:min(560px,70vw)}
+  .tag{display:flex;align-items:center;gap:9px;font-size:10px;letter-spacing:.3em;color:var(--dim)}
+  .dot{width:7px;height:7px;border-radius:50%;background:var(--red);animation:blink 1.6s infinite}
+  @keyframes blink{0%,100%{opacity:1}50%{opacity:.2}}
+  h1{font-family:'Unbounded',sans-serif;font-weight:800;font-size:clamp(28px,4.6vw,54px);
+     line-height:.98;letter-spacing:-.01em;margin-top:10px}
+  h1.swap{animation:tswap .55s ease both}
+  @keyframes tswap{from{opacity:0;transform:translateY(10px);filter:blur(5px)}to{opacity:1;transform:none;filter:none}}
+  .rule{width:64px;height:3px;background:var(--amber);margin-top:12px}
+  .sub{margin-top:11px;font-size:11px;letter-spacing:.24em;color:var(--amber)}
+  .formula{margin-top:9px;font-size:11px;letter-spacing:.2em;color:var(--dim)}
+
+  #stats{position:absolute;top:30px;right:34px;background:var(--panel);
+    border:1px solid var(--line);border-radius:3px;padding:13px 16px;min-width:210px}
+  #stats .row{display:flex;justify-content:space-between;gap:22px;padding:4.5px 0;
+    border-bottom:1px solid rgba(238,240,233,.07)}
+  #stats .row:last-child{border-bottom:0}
+  .k{font-size:9px;letter-spacing:.26em;color:var(--dim);align-self:center}
+  .v{font-size:13px;font-weight:600}
+  .v.amber{color:var(--amber)}
+
+  #dock{position:absolute;left:34px;bottom:32px;display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+  #dock *{pointer-events:auto}
+  .chip{font:600 10px 'IBM Plex Mono',monospace;letter-spacing:.18em;color:var(--ink);
+    background:var(--panel);border:1px solid var(--line);border-radius:3px;
+    padding:9px 13px;cursor:pointer;transition:transform .18s,border-color .18s,color .18s,background .18s}
+  .chip:hover{border-color:var(--amber);color:var(--amber);transform:translateY(-2px)}
+  .chip:active{transform:translateY(0) scale(.97)}
+  .chip.on{background:var(--amber);border-color:var(--amber);color:#141414}
+  .swatch{width:27px;height:27px;border-radius:50%;border:2px solid rgba(238,240,233,.2);
+    padding:0;cursor:pointer;transition:transform .18s,border-color .18s,box-shadow .18s}
+  .swatch:hover{transform:scale(1.18)}
+  .swatch.on{border-color:#fff;box-shadow:0 0 0 2px rgba(255,176,46,.55)}
+  .swatch-gap{width:8px}
+
+  #progress{position:absolute;left:50%;bottom:38px;transform:translateX(-50%);
+    width:min(46vw,520px);transition:opacity .4s}
+  body.mode-j #progress{opacity:.15}
+  #phaseTag{text-align:center;font-size:9px;letter-spacing:.34em;color:var(--dim);margin-bottom:9px}
+  .track{position:relative;height:2px;background:rgba(238,240,233,.16)}
+  #pfill{position:absolute;left:0;top:0;height:100%;background:var(--amber);width:0%}
+  .gem{position:absolute;top:50%;width:8px;height:8px;transform:translate(-50%,-50%) rotate(45deg);
+    background:#0a0c11;border:1px solid var(--dim);cursor:pointer;pointer-events:auto;transition:.2s}
+  .gem:hover,.gem.on{background:var(--amber);border-color:var(--amber)}
+  .gem.on{box-shadow:0 0 10px rgba(255,176,46,.8)}
+
+  #legend{position:absolute;right:34px;bottom:32px;text-align:right;
+    font-size:9.5px;letter-spacing:.14em;color:var(--dim);line-height:2}
+  #legend b{color:var(--ink);font-weight:600}
+
+  #probe{position:fixed;z-index:3;pointer-events:none;font-size:10px;letter-spacing:.06em;
+    color:var(--amber);opacity:0;transition:opacity .25s;text-shadow:0 1px 5px #000;white-space:nowrap}
+
+  .pulse{position:fixed;z-index:4;width:14px;height:14px;margin:-7px 0 0 -7px;border-radius:50%;
+    border:1.5px solid var(--amber);pointer-events:none;animation:pw .55s ease-out forwards}
+  @keyframes pw{from{transform:scale(.4);opacity:.9}to{transform:scale(3.4);opacity:0}}
+
+  /* ---------- intro ---------- */
+  #intro{position:fixed;inset:0;z-index:10;background:#05060a;display:flex;flex-direction:column;
+    align-items:center;justify-content:center;gap:16px;transition:opacity .8s ease .15s}
+  #intro.gone{opacity:0;pointer-events:none}
+  .intro-f{font-family:'Unbounded',sans-serif;font-weight:800;font-size:clamp(34px,7vw,84px);
+    animation:rise .9s cubic-bezier(.2,.7,.2,1) both}
+  .intro-f em{font-style:normal;color:var(--amber)}
+  .intro-s{font-size:10px;letter-spacing:.44em;color:var(--dim);animation:rise 1s .3s both}
+  @keyframes rise{from{opacity:0;transform:translateY(26px);letter-spacing:.3em}to{opacity:1;transform:none}}
+
+  @media (max-width:760px){
+    #stats,#legend,#progress{display:none}
+    header{top:18px;left:18px}
+    #dock{left:18px;right:18px;bottom:18px}
+  }
+</style>
+</head>
+<body>
+
+<canvas id="view"></canvas>
+<div id="vig"></div>
+
+<div id="hud">
+  <div class="corner tl"></div><div class="corner tr"></div>
+  <div class="corner bl"></div><div class="corner br"></div>
+
+  <header>
+    <div class="tag"><span class="dot"></span>LIVE RENDER · ESCAPE-TIME FRACTAL</div>
+    <h1 id="title">MANDELBROT</h1>
+    <div class="rule"></div>
+    <div class="sub" id="subtitle">STOP 01 / 04 · SEAHORSE VALLEY</div>
+    <div class="formula">z ↦ z² + c &nbsp;·&nbsp; ℂ → ℂ</div>
+  </header>
+
+  <aside id="stats">
+    <div class="row"><span class="k">ZOOM</span><span class="v amber" id="vZoom">1.0×</span></div>
+    <div class="row"><span class="k">ITER</span><span class="v" id="vIter">—</span></div>
+    <div class="row"><span class="k">FPS</span><span class="v" id="vFps">—</span></div>
+    <div class="row"><span class="k">RES</span><span class="v" id="vRes">—</span></div>
+    <div class="row"><span class="k" id="kCoord">CTR</span><span class="v" id="vCoord" style="font-size:10.5px">—</span></div>
+  </aside>
+
+  <nav id="dock">
+    <button class="chip" id="tourBtn">TOUR · ON</button>
+    <button class="chip" id="juliaBtn">JULIA</button>
+    <button class="chip" id="qualBtn">QUALITY · HIGH</button>
+    <div class="swatch-gap"></div>
+    <span id="swatches" style="display:flex;gap:8px"></span>
+  </nav>
+
+  <div id="progress">
+    <div id="phaseTag">DESCENT</div>
+    <div class="track"><div id="pfill"></div></div>
+  </div>
+
+  <footer id="legend">
+    <b>SCROLL</b> zoom · <b>DRAG</b> pan · <b>2×CLICK</b> dive · <b>SHIFT+2×CLICK</b> rise<br>
+    <b>SPACE</b> tour · <b>J</b> julia · <b>R</b> replay stop · <b>1–5</b> palette · <b>H</b> hide hud
+  </footer>
+</div>
+
+<div id="probe"></div>
+
+<div id="intro">
+  <div class="intro-f">z ↦ z² <em>+</em> c</div>
+  <div class="intro-s">ENTERING THE SET</div>
+</div>
+
+<script>
+'use strict';
+/* ============================================================
+   MANDELBROT · DEEP FIELD
+   adaptive-resolution escape-time renderer + guided deep zoom
+   ============================================================ */
+const TAU = Math.PI * 2, BASE = 1.5, LUTN = 1024, LOG2E = Math.LOG2E;
+const canvas = document.getElementById('view');
+const ctx = canvas.getContext('2d', { alpha:false });
+const off = document.createElement('canvas');
+const offCtx = off.getContext('2d');
+
+let W = 0, H = 0, DPR = 1;
+function resize(){
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  W = innerWidth; H = innerHeight;
+  canvas.width = Math.round(W * DPR); canvas.height = Math.round(H * DPR);
+  canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
+}
+addEventListener('resize', resize); resize();
+
+/* ---------------- state ---------------- */
+const view = { cx:-0.6, cy:0, zoom:1 };
+let mode = 'M';                       // M = mandelbrot, J = julia
+let touring = true, tphase = 'rewind', tt = 0, stopIdx = 0, rewFrom = null, rewTo = 0;
+const julia = { re:-0.8, im:0.156 }; let juliaT = 2.1;
+let paletteIdx = 1, phase = Math.random() * 1, quality = 2;
+let adapt = 0.4, lastCost = 0, lastCap = 100, fps = 60, lastMotion = 0;
+let za = null, savedMV = null, drag = null;
+let buf = null, bw = 0, bh = 0;
+const palLUT = new Uint8ClampedArray(LUTN * 3);
+
+const STOPS = [
+  { name:'SEAHORSE VALLEY', x:-0.7453,    y: 0.1127,     z:4e10  },
+  { name:'SPIRAL NEBULA',   x:-0.7460,    y: 0.1102,     z:9e10  },
+  { name:'ELEPHANT VALLEY', x: 0.2755,    y: 0.0068,     z:4e10  },
+  { name:'DOUBLE HELIX',    x:-0.761574,  y:-0.0847596,  z:2.5e10},
+];
+const RATE = 0.55, HOLD = 1.5, REWD = 1.3;
+
+const PALETTES = [
+  { name:'SPECTRA', a:[.50,.50,.50], b:[.50,.50,.50], c:[1,1,1], d:[0,.333,.667] },
+  { name:'INFERNO', a:[.50,.50,.50], b:[.50,.50,.50], c:[1,1,.5], d:[.80,.90,.30] },
+  { name:'GLACIER', a:[.50,.55,.60], b:[.45,.45,.50], c:[1,1,1], d:[.60,.50,.40] },
+  { name:'SUNDIAL', a:[.55,.45,.35], b:[.45,.45,.50], c:[1,1,1], d:[.05,.12,.24] },
+  { name:'VOID',    a:[.30,.30,.34], b:[.65,.65,.70], c:[1,1,1], d:[0,0,.04] },
+];
+
+function samplePal(P, t){
+  const o = [0,0,0];
+  for(let k=0;k<3;k++){
+    o[k] = Math.max(0, Math.min(1, P.a[k] + P.b[k]*Math.cos(TAU*(P.c[k]*t + P.d[k]))));
+  }
+  return o;
+}
+function buildLUT(){
+  const P = PALETTES[paletteIdx];
+  for(let i=0;i<LUTN;i++){
+    const v = samplePal(P, i/LUTN + phase);
+    palLUT[i*3] = v[0]*255; palLUT[i*3+1] = v[1]*255; palLUT[i*3+2] = v[2]*255;
+  }
+}
+
+/* ---------------- core renderer ---------------- */
+function computeFrame(img, w, h, cap){
+  const d = img.data;
+  const hh = BASE / view.zoom, hw = hh * w / h;
+  const ox = view.cx - hw, oy = view.cy + hh;
+  const sx = 2*hw/w, sy = 2*hh/h;
+  const isJ = mode === 'J', jr = julia.re, ji = julia.im;
+  const lut = palLUT, den = 0.035 / (1 + Math.log10(Math.max(1,view.zoom)) * 0.05);
+  const ph = phase;
+  let p = 0;
+  for(let y=0; y<h; y++){
+    const pyv = oy - sy*y;
+    for(let x=0; x<w; x++){
+      const pxv = ox + sx*x;
+      let zr, zi, cr, ci;
+      if(isJ){ zr = pxv; zi = pyv; cr = jr; ci = ji; }
+      else{
+        zr = 0; zi = 0; cr = pxv; ci = pyv;
+        // main cardioid + period-2 bulb shortcut
+        const xq = pxv - 0.25, q = xq*xq + pyv*pyv;
+        if(q*(q + xq) < 0.25*pyv*pyv || (pxv+1)*(pxv+1) + pyv*pyv < 0.0625){
+          d[p]=6; d[p+1]=8; d[p+2]=14; d[p+3]=255; p+=4; continue;
+        }
+      }
+      let i = 0, zr2 = zr*zr, zi2 = zi*zi;
+      while(i < cap && zr2 + zi2 < 256){
+        zi = 2*zr*zi + ci; zr = zr2 - zi2 + cr;
+        zr2 = zr*zr; zi2 = zi*zi; i++;
+      }
+      if(i >= cap){ d[p]=6; d[p+1]=8; d[p+2]=14; d[p+3]=255; }
+      else{
+        const m = Math.log(zr2 + zi2);
+        const sm = i + 1 - Math.log(m * 0.7213475204) * LOG2E;
+        let t = (sm * den + ph) % 1; if(t < 0) t += 1;
+        const q = (t * LUTN | 0) * 3;
+        d[p] = lut[q]; d[p+1] = lut[q+1]; d[p+2] = lut[q+2]; d[p+3] = 255;
+      }
+      p += 4;
+    }
+  }
+}
+
+function iterCap(){
+  const lg = Math.max(0, Math.log10(Math.max(1, view.zoom)));
+  let cap = (70 + 55*Math.pow(lg, 1.12)) * [0.55,0.8,1,1.25][quality];
+  if(performance.now() - lastMotion < 250) cap *= 0.85;
+  return Math.max(56, Math.min(1600, cap | 0));
+}
+
+/* ---------------- tour engine ---------------- */
+const lerp = (a,b,t) => a + (b-a)*t;
+function stepTour(dt){
+  if(mode !== 'M' || !touring) return;
+  const st = STOPS[stopIdx];
+  if(tphase === 'descend'){
+    view.cx = st.x; view.cy = st.y;
+    view.zoom *= Math.exp(RATE*dt);
+    if(view.zoom >= st.z){ view.zoom = st.z; tphase = 'hold'; tt = 0; }
+  } else if(tphase === 'hold'){
+    tt += dt;
+    if(tt >= HOLD){
+      tphase = 'rewind';
+      rewFrom = { cx:view.cx, cy:view.cy, z:view.zoom };
+      rewTo = (stopIdx + 1) % STOPS.length; tt = 0;
+    }
+  } else { // rewind / approach glide
+    tt += dt;
+    const k = Math.min(1, tt / REWD), e = k*k*(3 - 2*k);
+    const T = STOPS[rewTo];
+    view.zoom = Math.exp(lerp(Math.log(rewFrom.z), 0, e));
+    view.cx = lerp(rewFrom.cx, T.x, e);
+    view.cy = lerp(rewFrom.cy, T.y, e);
+    if(k >= 1){ stopIdx = rewTo; tphase = 'descend'; }
+  }
+}
+function jumpTo(i){
+  if(mode === 'J') toggleJulia();
+  touring = true; tphase = 'rewind'; tt = 0;
+  rewFrom = { cx:view.cx, cy:view.cy, z:view.zoom }; rewTo = i;
+  syncTourBtn();
+}
+
+/* ---------------- HUD helpers ---------------- */
+const $ = id => document.getElementById(id);
+const titleEl = $('title'), subtitleEl = $('subtitle'), probe = $('probe');
+const SUP = {'0':'⁰','1':'¹','2':'²','3':'³','4':'⁴','5':'⁵','6':'⁶','7':'⁷','8':'⁸','9':'⁹'};
+const sup = n => String(n).split('').map(c => SUP[c] ?? c).join('');
+function fmtZoom(z){
+  if(z < 1000) return z.toFixed(1) + '×';
+  const e = Math.floor(Math.log10(z));
+  return (z / 10**e).toFixed(2) + '×10' + sup(e);
+}
+function fmtC(re, im, dec){
+  return (re<0?'−':'+') + Math.abs(re).toFixed(dec) + ' ' + (im<0?'−':'+') + Math.abs(im).toFixed(dec) + 'i';
+}
+function s2c(px, py){
+  const hh = BASE / view.zoom, hw = hh * W / H;
+  return { re: view.cx - hw + (px/W)*2*hw, im: view.cy + hh - (py/H)*2*hh };
+}
+
+/* build palette swatches */
+const swatchBox = $('swatches');
+PALETTES.forEach((P, i) => {
+  const b = document.createElement('button');
+  b.className = 'swatch'; b.title = P.name;
+  const stops = [];
+  for(let s=0; s<=8; s++){
+    const v = samplePal(P, s/8).map(n => Math.round(n*255));
+    stops.push(`rgb(${v[0]},${v[1]},${v[2]}) ${(s/8*100).toFixed(0)}%`);
+  }
+  b.style.background = `linear-gradient(90deg, ${stops.join(',')})`;
+  b.onclick = () => { paletteIdx = i; syncSwatches(); };
+  swatchBox.appendChild(b);
+});
+function syncSwatches(){
+  [...swatchBox.children].forEach((el,i) => el.classList.toggle('on', i === paletteIdx));
+}
+syncSwatches();
+
+/* build progress gems */
+const track = document.querySelector('.track'), gems = [];
+STOPS.forEach((s, i) => {
+  const g = document.createElement('div');
+  g.className = 'gem'; g.title = s.name;
+  g.style.left = ((i + 0.5) / STOPS.length * 100) + '%';
+  g.onclick = () => jumpTo(i);
+  track.appendChild(g); gems.push(g);
+});
+
+function syncTourBtn(){
+  $('tourBtn').textContent = mode === 'J' ? 'JULIA FLIGHT' : (touring ? 'TOUR · ON' : 'TOUR · OFF');
+}
+
+/* ---------------- interaction ---------------- */
+function interrupt(){ if(touring && mode === 'M'){ touring = false; syncTourBtn(); } }
+function zoomAt(px, py, f){
+  const a = s2c(px, py);
+  view.zoom = Math.min(3e12, Math.max(0.55, view.zoom * f));
+  const b = s2c(px, py);
+  view.cx += a.re - b.re; view.cy += a.im - b.im;
+  lastMotion = performance.now();
+}
+
+canvas.addEventListener('wheel', e => {
+  e.preventDefault();
+  zoomAt(e.clientX, e.clientY, Math.exp(-e.deltaY * 0.0016));
+  interrupt();
+}, { passive:false });
+
+canvas.addEventListener('dblclick', e => {
+  e.preventDefault();
+  interrupt();
+  const f = e.shiftKey ? 1/6 : 6;
+  za = { px:e.clientX, py:e.clientY, from:view.zoom,
+         to: Math.min(3e12, Math.max(0.55, view.zoom*f)),
+         t0: performance.now(), dur: 650 };
+});
+
+canvas.addEventListener('pointerdown', e => {
+  drag = { x:e.clientX, y:e.clientY, cx:view.cx, cy:view.cy, moved:false };
+  document.body.classList.add('dragging');
+  canvas.setPointerCapture(e.pointerId);
+});
+canvas.addEventListener('pointermove', e => {
+  moveProbe(e);
+  if(!drag) return;
+  const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+  if(!drag.moved && Math.hypot(dx,dy) > 3){ drag.moved = true; interrupt(); }
+  if(drag.moved){
+    const perPx = 2*BASE / view.zoom / H;
+    view.cx = drag.cx - dx*perPx;
+    view.cy = drag.cy + dy*perPx;
+    lastMotion = performance.now();
+    probe.style.opacity = 0;
+  }
+});
+canvas.addEventListener('pointerup', e => {
+  if(drag && !drag.moved){
+    const el = document.createElement('div');
+    el.className = 'pulse'; el.style.left = e.clientX+'px'; el.style.top = e.clientY+'px';
+    document.body.appendChild(el);
+    el.addEventListener('animationend', () => el.remove());
+  }
+  drag = null; document.body.classList.remove('dragging');
+});
+canvas.addEventListener('pointerleave', () => probe.style.opacity = 0);
+
+function moveProbe(e){
+  if(drag && drag.moved) return;
+  const c = s2c(e.clientX, e.clientY);
+  const dec = Math.min(12, 3 + Math.floor(Math.log10(Math.max(1, view.zoom))));
+  probe.textContent = fmtC(c.re, c.im, dec);
+  probe.style.left = (e.clientX + 16) + 'px';
+  probe.style.top  = (e.clientY + 18) + 'px';
+  probe.style.opacity = 1;
+}
+
+function toggleJulia(){
+  if(mode === 'M'){
+    savedMV = { cx:view.cx, cy:view.cy, zoom:view.zoom };
+    mode = 'J'; view.cx = 0; view.cy = 0; view.zoom = 1;
+  } else {
+    mode = 'M';
+    if(savedMV){ view.cx = savedMV.cx; view.cy = savedMV.cy; view.zoom = savedMV.zoom; }
+  }
+  titleEl.textContent = mode === 'M' ? 'MANDELBROT' : 'JULIA SET';
+  titleEl.classList.remove('swap'); void titleEl.offsetWidth; titleEl.classList.add('swap');
+  document.body.classList.toggle('mode-j', mode === 'J');
+  $('juliaBtn').classList.toggle('on', mode === 'J');
+  adapt = Math.min(adapt, 0.55);
+  syncTourBtn();
+}
+function toggleTour(){
+  if(mode === 'J'){ toggleJulia(); jumpTo(stopIdx); return; }
+  if(touring){ touring = false; } else { jumpTo(stopIdx); }
+  syncTourBtn();
+}
+
+$('tourBtn').onclick = toggleTour;
+$('juliaBtn').onclick = toggleJulia;
+$('qualBtn').onclick = () => {
+  quality = (quality + 1) % 4;
+  $('qualBtn').textContent = 'QUALITY · ' + ['LOW','MED','HIGH','ULTRA'][quality];
+};
+
+addEventListener('keydown', e => {
+  if(e.repeat) return;
+  const k = e.key.toLowerCase();
+  if(k === ' '){ e.preventDefault(); toggleTour(); }
+  else if(k === 'j') toggleJulia();
+  else if(k === 'r'){ if(mode === 'J') toggleJulia(); jumpTo(stopIdx); }
+  else if(k === 'h') document.body.classList.toggle('hud-hidden');
+  else if(k >= '1' && k <= '5'){ paletteIdx = +k - 1; syncSwatches(); }
+});
+
+/* ---------------- HUD update ---------------- */
+let lastDOM = 0;
+function updateHUD(rw, rh){
+  $('vZoom').textContent = fmtZoom(view.zoom);
+  $('vIter').textContent = lastCap;
+  $('vFps').textContent = Math.round(fps);
+  $('vRes').textContent = rw + '×' + rh;
+  const dec = Math.min(10, 3 + Math.floor(Math.log10(Math.max(1, view.zoom))));
+  if(mode === 'J'){
+    $('kCoord').textContent = 'C';
+    $('vCoord').textContent = fmtC(julia.re, julia.im, 4);
+    subtitleEl.textContent = 'ORBITAL MORPH · CONNECTED SPACE';
+  } else {
+    $('kCoord').textContent = 'CTR';
+    $('vCoord').textContent = fmtC(view.cx, view.cy, dec);
+    subtitleEl.textContent = tphase === 'rewind'
+      ? 'TRANSIT → ' + STOPS[rewTo].name
+      : `STOP 0${stopIdx+1} / 0${STOPS.length} · ${STOPS[stopIdx].name}`;
+  }
+  $('phaseTag').textContent = tphase === 'hold' ? '· HOLDING ·'
+    : tphase === 'rewind' ? 'TRANSIT' : 'DESCENT';
+  const p = mode === 'J' ? 0 :
+    Math.max(0, Math.min(1, Math.log(view.zoom) / Math.log(STOPS[stopIdx].z)));
+  $('pfill').style.width = (p*100).toFixed(1) + '%';
+  gems.forEach((g,i) => g.classList.toggle('on', i === stopIdx && mode === 'M'));
+}
+
+/* ---------------- main loop ---------------- */
+rewFrom = { cx:view.cx, cy:view.cy, z:1 }; rewTo = 0;   // opening glide
+
+let last = performance.now();
+function frame(now){
+  requestAnimationFrame(frame);
+  let dt = (now - last) / 1000; last = now;
+  if(dt > 0.06) dt = 0.06;
+  fps += (1/Math.max(dt, 1e-4) - fps) * 0.06;
+  phase = (phase + dt * 0.016) % 1;
+
+  if(mode === 'J'){
+    juliaT += dt * 0.22;
+    julia.re = -0.79 + 0.075 * Math.cos(juliaT);
+    julia.im =  0.15 + 0.075 * Math.sin(juliaT * 1.7);
+  }
+  stepTour(dt);
+
+  if(za){ // eased point-anchored zoom animation
+    const k = Math.min(1, (now - za.t0) / za.dur), e = 1 - Math.pow(1-k, 3);
+    const a = s2c(za.px, za.py);
+    view.zoom = Math.exp(lerp(Math.log(za.from), Math.log(za.to), e));
+    const b = s2c(za.px, za.py);
+    view.cx += a.re - b.re; view.cy += a.im - b.im;
+    lastMotion = now;
+    if(k >= 1) za = null;
+  }
+
+  buildLUT();
+
+  /* adaptive resolution: chase a time budget, sharpen when idle */
+  const target = [6,10,14,19][quality] * (now - lastMotion < 250 ? 0.8 : 1);
+  const maxS = Math.min(1, 2400 / canvas.width);
+  const s = Math.min(adapt, maxS);
+  const rw = Math.max(120, Math.round(canvas.width * s));
+  const rh = Math.max(68,  Math.round(canvas.height * s));
+  if(off.width !== rw || off.height !== rh){ off.width = rw; off.height = rh; }
+  if(bw !== rw || bh !== rh){ buf = offCtx.createImageData(rw, rh); bw = rw; bh = rh; }
+
+  lastCap = iterCap();
+  const t0 = performance.now();
+  computeFrame(buf, rw, rh, lastCap);
+  offCtx.putImageData(buf, 0, 0);
+  ctx.imageSmoothingEnabled = s < 0.999;
+  ctx.drawImage(off, 0, 0, canvas.width, canvas.height);
+  lastCost = performance.now() - t0;
+
+  const r = target / Math.max(lastCost, 0.4);
+  if(r < 0.85) adapt *= Math.max(0.7, r);
+  else if(r > 1.25) adapt *= Math.min(1.18, 0.6 + r * 0.4);
+  adapt = Math.min(adapt, 1);
+
+  if(now - lastDOM > 140){ updateHUD(rw, rh); lastDOM = now; }
+}
+requestAnimationFrame(frame);
+
+/* intro */
+setTimeout(() => document.getElementById('intro').classList.add('gone'), 1500);
+setTimeout(() => document.getElementById('intro').remove(), 2600);
+</script>
+</body>
+</html>
